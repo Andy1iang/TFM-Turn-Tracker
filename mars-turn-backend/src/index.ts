@@ -27,6 +27,7 @@ function extractGameId(input: string): string | null {
 }
 
 app.post("/track", async (req, res) => {
+  console.log("[BACKEND] /track called with:", req.body);
   let { gameId, playerColor, discordUserId } = req.body;
 
   // Validate fields present

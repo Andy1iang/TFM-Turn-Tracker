@@ -91,7 +91,7 @@ bot.on("interactionCreate", async (interaction: Interaction) => {
       });
       return;
     }
-
+    console.log("[BOT] Sending POST to", BACKEND_URL, { gameId, playerColor: color, discordUserId });
     // POST to backend
     try {
       const response = await fetch(BACKEND_URL, {
@@ -120,6 +120,7 @@ We'll send you a confirmation DM and notify you when it's your turn. Good luck! 
         });
       }
     } catch (err) {
+      console.error("[BOT] Backend POST failed:", err);
       await interaction.reply({
         content: "❌ Server error, try again later.",
         flags: MessageFlags.Ephemeral
