@@ -1,17 +1,29 @@
-// mars-turn-bot/src/index.ts
-
-import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Interaction, Partials } from "discord.js";
+import { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, Interaction, Partials, MessageFlags } from "discord.js";
 import dotenv from "dotenv";
 dotenv.config();
-import { sendTurnAlert } from "../../shared/notifier"; // Shared notifier function
-
-import { trackGame, isValidGameId } from "../../mars-turn-backend/src/tracker";
-import { VALID_COLORS } from "../../mars-turn-backend/src/constants";
 
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID!;
-const GUILD_ID = process.env.DISCORD_GUILD_ID!; // Fast for dev; remove for global later
+const GUILD_ID = process.env.DISCORD_GUILD_ID!;
+const BACKEND_URL = process.env.BACKEND_URL || "http://localhost:4000/track"; // Set your prod URL on Railway
 
-// 1. Register slash commands (guild for fast update)
+const VALID_COLORS = [
+  "red", "green", "yellow", "blue", "black",
+  "purple", "orange", "pink"
+];
+
+function extractGameId(input: string): string | null {
+  // Try to find id=XXXXXX anywhere in the string
+  const match = input.match(/id=([a-zA-Z0-9]+)/);
+  if (match) return match[1];
+
+  // Otherwise, check if the input looks like an ID (alphanumeric, usually length 8+)
+  if (/^[a-zA-Z0-9]{8,}$/.test(input)) return input;
+
+  return null; // Not a valid ID
+}
+
+
+// 1. Register slash commands
 async function registerSlashCommands() {
   const commands = [
     new SlashCommandBuilder()
@@ -30,21 +42,20 @@ async function registerSlashCommands() {
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN!);
 
   await rest.put(
-    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), // Fast update for your dev/test server
-    // Routes.applicationCommands(CLIENT_ID), // For global deployment
+    Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID),
     { body: commands }
   );
   console.log('✅ Slash command registered!');
 }
 
 // 2. Start bot
-export const bot = new Client({
+const bot = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.MessageContent,
   ],
-  partials: [Partials.Channel], // needed for DMs
+  partials: [Partials.Channel],
 });
 
 bot.once("ready", async () => {
@@ -60,40 +71,57 @@ bot.on("interactionCreate", async (interaction: Interaction) => {
     const color = interaction.options.getString("color", true).toLowerCase();
     const discordUserId = interaction.user.id;
 
-    // Validate color
+    // Validate color locally
     if (!VALID_COLORS.includes(color)) {
-      await interaction.reply({ content: `❌ Invalid color "${color}".`, ephemeral: true });
-      return;
-    }
-
-    // Extract gameId from URL if needed
-    let gameId = gameInput;
-    if (gameId.startsWith("http")) {
-      const match = gameId.match(/[?&]id=([a-zA-Z0-9]+)/);
-      if (!match) {
-        await interaction.reply({ content: "❌ Could not extract game ID from link.", ephemeral: true });
-        return;
-      }
-      gameId = match[1];
-    }
-
-    // Validate game
-    if (!(await isValidGameId(gameId))) {
-      await interaction.reply({ content: "❌ Invalid game link or ID.", ephemeral: true });
-      return;
-    }
-
-    // Track game and send confirmation DM
-    try {
-      await trackGame(gameId, color, discordUserId, sendTurnAlert.bind(null, bot));
       await interaction.reply({
-        content: `🛰️ Terraforming Mars Turn Tracker\n------------------------------------------\nYou're now set up for game **${gameId}** as **${color}**!\nWe'll DM you when it's your turn. Good luck! 🚀`
+        content: `❌ Invalid color "${color}".`,
+        flags: MessageFlags.Ephemeral
       });
+      return;
+    }
 
+    // Use improved extractor
+    const gameId = extractGameId(gameInput);
+
+    if (!gameId) {
+      await interaction.reply({
+        content: "❌ Could not extract game ID from your input. Please check your link or ID.",
+        flags: MessageFlags.Ephemeral
+      });
+      return;
+    }
+
+    // POST to backend
+    try {
+      const response = await fetch(BACKEND_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          gameId,
+          playerColor: color,
+          discordUserId,
+        }),
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        await interaction.reply({
+          content: `🛰️ Terraforming Mars Turn Tracker
+------------------------------------------
+You're now set up for game **${gameId}** as **${color}**!
+We'll send you a confirmation DM and notify you when it's your turn. Good luck! 🚀
+------------------------------------------`
+        });
+      } else {
+        await interaction.reply({
+          content: `❌ Could not start tracking: ${data.error || "Unknown error."}`,
+          flags: MessageFlags.Ephemeral
+        });
+      }
     } catch (err) {
       await interaction.reply({
-        content: "❌ Failed to start tracking. Try again later.",
-        ephemeral: true
+        content: "❌ Server error, try again later.",
+        flags: MessageFlags.Ephemeral
       });
     }
   }

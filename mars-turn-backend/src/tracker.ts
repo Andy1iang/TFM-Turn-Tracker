@@ -1,27 +1,22 @@
-// mars-turn-backend/src/tracker.ts
-
 import axios from "axios";
+import { sendTurnAlert } from "./notifier"; // Use backend-local notifier!
 
 // --- Game state and type definitions ---
 interface TrackedGame {
   gameId: string;
   colorToDiscordId: Record<string, string>;
   lastWaitingFor: Set<string>;
+  polling?: boolean; // Prevent multiple pollers per game
 }
 
 // The central registry of tracked games
 const trackedGames: Record<string, TrackedGame> = {};
 
-// --- Notification callback type ---
-export type TurnAlertNotifier = (discordUserId: string, gameId: string, color: string, message: string) => Promise<void>;
-
 // --- Main tracker logic ---
-
 export async function trackGame(
   gameId: string,
   color: string,
-  discordUserId: string,
-  sendTurnAlert: TurnAlertNotifier // Notification function passed from bot process
+  discordUserId: string
 ) {
   let game = trackedGames[gameId];
   if (!game) {
@@ -29,17 +24,23 @@ export async function trackGame(
       gameId,
       colorToDiscordId: {},
       lastWaitingFor: new Set(),
+      polling: false,
     };
     trackedGames[gameId] = game;
-    pollGame(gameId, sendTurnAlert);
   }
   game.colorToDiscordId[color] = discordUserId;
 
-  // Optionally send confirmation here if called from bot
-  await sendTurnAlert(discordUserId, gameId, color, `✅ Tracking started for game **${gameId}** as **${color}**! You'll get a DM when it's your turn.`);
+  // Start polling if not running
+  if (!game.polling) {
+    game.polling = true;
+    pollGame(gameId);
+  }
+
+  // Confirmation message will be sent by backend after calling this function
 }
 
-async function pollGame(gameId: string, sendTurnAlert: TurnAlertNotifier) {
+// --- Polling logic ---
+async function pollGame(gameId: string) {
   const game = trackedGames[gameId];
   if (!game) return;
 
@@ -64,7 +65,14 @@ async function pollGame(gameId: string, sendTurnAlert: TurnAlertNotifier) {
         if (!game.lastWaitingFor.has(color)) {
           const userId = game.colorToDiscordId[color];
           if (userId) {
-            await sendTurnAlert(userId, gameId, color, `🔔 It's your turn in game **${gameId}** as **${color}**!\nGame link: https://terraforming-mars.herokuapp.com/game/${gameId}`);
+            const message = 
+`------------------------------------------
+🔔 It's your turn in game **${gameId}** as **${color}**!
+Game link: https://terraforming-mars.herokuapp.com/game?id=${gameId}
+------------------------------------------
+
+`;
+            await sendTurnAlert(userId, gameId, color, message);
           }
         }
       }
