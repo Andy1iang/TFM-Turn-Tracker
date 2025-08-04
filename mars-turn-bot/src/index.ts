@@ -4,7 +4,8 @@ dotenv.config();
 
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID!;
 const GUILD_ID = process.env.DISCORD_GUILD_ID!;
-const BACKEND_URL = `${process.env.BACKEND_URL}/track` || "http://localhost:4000/track"; // Set your prod URL on Railway
+const BACKEND_ROOT = process.env.BACKEND_URL || "http://localhost:4000";
+const BACKEND_URL = `${BACKEND_ROOT}/track`;
 
 const VALID_COLORS = [
   "red", "green", "yellow", "blue", "black",
