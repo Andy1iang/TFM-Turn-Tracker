@@ -68,7 +68,7 @@ async function pollGame(gameId: string) {
             const message = 
 `------------------------------------------
 🔔 It's your turn in game **${gameId}** as **${color}**!
-Game link: https://terraforming-mars.herokuapp.com/game?id=${gameId}
+Game link: https://terraforming-mars.herokuapp.com/player?id=${gameId}
 ------------------------------------------
 
 `;
